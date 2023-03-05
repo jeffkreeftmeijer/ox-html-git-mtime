@@ -5,7 +5,29 @@
 #+author: Jeff Kreeftmeijer
 #+date: 2023-03-05
 
-#+begin_src emacs-lisp :tangle ox-html-git-mtime.el
+#+name: boilerplate-start
+#+begin_src emacs-lisp :exports none
+  ;;; ox-html-git-mtime.el --- Git-based document modified times for ox-html.el
+
+  ;;; Commentary:
+
+  ;; Uses git-mtime to get the modified time when exporting a
+  ;; document.
+  ;;
+  ;; Replaces the %C placeholder used in pre- and postambles from
+  ;; placing the modified time for a file to using the time of the
+  ;; last Git commit that touched the file.
+
+  ;;; Code:
+#+end_src
+
+#+name: boilerplate-end
+#+begin_src emacs-lisp :exports none
+  ;;; ox-html-git-mtime.el ends here
+#+end_src
+
+#+name: plugin
+#+begin_src emacs-lisp
   (setq ox-html-git-mtime--git-mtime-location
 	(concat (file-name-directory load-file-name) "git-mtime/git-mtime"))
 
@@ -46,6 +68,12 @@
 			  (lambda () (advice-remove
 				      'org-html-format-spec
 				      #'org-html-git-mtime--advise-org-html-format-spec))))
+#+end_src
+
+#+begin_src emacs-lisp :tangle ox-html-git-mtime.el :exports none :noweb yes
+  <<boilerplate-start>>
+  <<plugin>>
+  <<boilerplate-end>>
 #+end_src
 
 * :noexport:

@@ -1,3 +1,15 @@
+;;; ox-html-git-mtime.el --- Git-based document modified times for ox-html.el
+
+;;; Commentary:
+
+;; Uses git-mtime to get the modified time when exporting a
+;; document.
+;;
+;; Replaces the %C placeholder used in pre- and postambles from
+;; placing the modified time for a file to using the time of the
+;; last Git commit that touched the file.
+
+;;; Code:
 (setq ox-html-git-mtime--git-mtime-location
       (concat (file-name-directory load-file-name) "git-mtime/git-mtime"))
 
@@ -38,3 +50,4 @@
 			(lambda () (advice-remove
 				    'org-html-format-spec
 				    #'org-html-git-mtime--advise-org-html-format-spec))))
+;;; ox-html-git-mtime.el ends here
