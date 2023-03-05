@@ -1,6 +1,9 @@
+(setq ox-html-git-mtime--git-mtime-location
+      (concat (file-name-directory load-file-name) "git-mtime/git-mtime"))
+
 (defun org-html-git-mtime--git-timestamp (path)
   (string-to-number (shell-command-to-string
-		     (concat "git-mtime --date=format:%s " path))))
+		     (concat ox-html-git-mtime--git-mtime-location " --date=format:%s " path))))
 
 (defun org-html-git-mtime--file-timestamp (path)
   (file-attribute-modification-time (file-attributes path)))

@@ -1,0 +1,3 @@
+[submodule "git-mtime"]
+	path = git-mtime
+	url = git@github.com:jeffkreeftmeijer/git-mtime.git
