@@ -1,0 +1,480 @@
+:PROPERTIES:
+:ID:       E3C80822-0C30-42EC-9D9E-CD36B35A3D96
+:END:
+#+title: ox-html-git-mtime
+#+author: Jeff Kreeftmeijer
+#+date: 2023-03-05
+
+#+begin_src emacs-lisp :tangle ox-html-git-mtime.el
+  (defun org-html-git-mtime--git-timestamp (path)
+    (string-to-number (shell-command-to-string
+		       (concat "git-mtime --date=format:%s " path))))
+
+  (defun org-html-git-mtime--file-timestamp (path)
+    (file-attribute-modification-time (file-attributes path)))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (let ((git-timestamp (org-html-git-mtime--git-timestamp path))
+	  (file-timestamp (org-html-git-mtime--file-timestamp path)))
+      (if ( > git-timestamp 0) git-timestamp file-timestamp)))
+
+  (defun org-html-git-mtime-formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (let ((info (car args)))
+      (append `((?C ,(org-html-git-mtime-formatted-mtime
+		      (plist-get info :input-file)
+		      (plist-get info :html-metadata-timestamp-format))))
+	      (apply orig-fun args))))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+
+  (add-to-list
+   'ox-extensions-alist '(
+			  'ox-html-git-mtime
+			  :add
+			  (lambda () (advice-add
+				      'org-html-format-spec
+				      :around
+				      #'org-html-git-mtime--advise-org-html-format-spec))
+			  :remove
+			  (lambda () (advice-remove
+				      'org-html-format-spec
+				      #'org-html-git-mtime--advise-org-html-format-spec))))
+#+end_src
+
+* :noexport:
+
+In [[https://git.savannah.gnu.org/cgit/emacs/org-mode.git/tree/lisp/ox-html.el][ox-html]], the current time is found using =format-time-string=, without passing time as an argument:
+
+#+begin_src emacs-lisp :results scalar
+(format-time-string "%Y-%m-%d %a %H:%M")
+#+end_src
+
+#+RESULTS:
+: "2023-03-02 Thu 20:02"
+
+That's equivalent to calling the same function with the current time passed as the time argument:
+
+#+begin_src emacs-lisp
+(format-time-string "%Y-%m-%d %a %H:%M" (current-time))
+#+end_src
+
+#+RESULTS:
+: 2023-03-02 Thu 19:28
+
+That time is used as the "export time", and is used in the default postamble (=%T=)
+One option that isn't used by default is =%C=, which is the "last modification time":
+
+#+begin_src emacs-lisp :results scalar
+  (let ((file buffer-file-name))
+	       (format-time-string "%Y-%m-%d %a %H:%M")
+				   (and file (file-attribute-modification-time
+					      (file-attributes file))))
+#+end_src
+
+#+RESULTS:
+: (25600 62154 691474 650000)
+
+This means there's one place where the modified time is exposed, but it's never used.
+
+To add a git-based modification time, we'll overwrite the =%C= option.
+
+#+begin_src emacs-lisp :results scalar
+  (file-attribute-modification-time (file-attributes (buffer-file-name)))
+#+end_src
+
+#+RESULTS:
+: (25600 63497 814689 720000)
+
+#+begin_src emacs-lisp :results scalar
+  (current-time)
+#+end_src
+
+#+RESULTS:
+: (25600 63537 657633 0)
+
+#+begin_src emacs-lisp :results scalar
+  (format-time-string "%Y-%m-%d %a %H:%M" 1677657211)
+#+end_src
+
+#+RESULTS:
+: "2023-03-01 Wed 08:53"
+
+Although =file-attribute-modification-time= and =current-time= produce time lists as lists of integers, =format-time-string= accepts seconds since epoch, which =git mtime= can return:
+
+#+begin_src shell :results scalar
+git mtime --date=format:%s git-mtime.org
+#+end_src
+
+Here's how one would set the postamble:
+
+#+begin_src emacs-lisp
+  (setq org-html-postamble "mtime: %C")
+#+end_src
+
+#+RESULTS:
+: mtime: %C
+
+We'd need to prefix the current implementation:
+
+#+begin_src emacs-lisp
+  (?C . ,(let ((file (plist-get info :input-file)))
+	   (format-time-string timestamp-format
+			       (and file (file-attribute-modification-time
+					  (file-attributes file))))))
+#+end_src
+
+With something that calls out to =git-mtime= first.
+
+To do this, we need to advise the org-html-format-spec function to replace the correct one with the new implementation.
+
+advise -> replace =%C= item -> call out to git -> use git date -> fall back to old implementation
+
+** DONE Advise the function:
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (apply orig-fun args))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+** DONE Replace an option
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C "FOO"))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+#+begin_src emacs-lisp
+  (org-html-format-spec (foo . 4))
+#+end_src
+
+
+#+begin_src emacs-lisp
+  (let (info '(html-doctype 1))
+    (plist-get info :html-doctype))
+#+end_src
+
+#+RESULTS:
+
+
+#+begin_src emacs-lisp
+  (append
+   '((?t . "FOO")
+     (?s . "BAR"))
+   '((?s . "BAZ"))))
+#+end_src
+
+#+RESULTS:
+: ((116 . FOO) (115 . BAR) 115 . BAZ)
+
+#+begin_src emacs-lisp
+  (setq spec `((?C . "FOO")))
+  (add-to-list 'spec '(?C . js2-mode))
+  ;(alist-get ?C spec)
+#+end_src
+
+#+RESULTS:
+: ((67 . js2-mode) (67 . FOO))
+
+#+begin_src emacs-lisp
+  (append
+   '((?s . "BAZ"))
+   '((?t . "FOO")
+     (?s . "BAR"))))
+#+end_src
+
+#+RESULTS:
+: ((115 . BAZ) (116 . FOO) (115 . BAR))
+
+** DONE Replace an option with a generated value
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(org-export-data (plist-get (car args) :title) (car args))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE Replae %C with the full filename of the source file
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(org-export-data (plist-get (car args) :input-file) (car args))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+** DONE Replac %C with the result of an external command
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(shell-command-to-string "ls"))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE Replac %C with the result of an external comand the path is used in
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(shell-command-to-string (concat "ls -l " (plist-get (car args) :input-file)))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE Replac %C with the result of git-mtime
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(shell-command-to-string (concat "git-mtime --date=format:%s " (plist-get (car args) :input-file)))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE use emacs date formatting
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(format-time-string "%Y-%m-%d %a %H:%M" (string-to-number (shell-command-to-string (concat "git-mtime --date=format:%s " (plist-get (car args) :input-file)))))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+
+#+end_src
+
+#+RESULTS:
+
+** DONE get date format from args
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(
+	     format-time-string
+	     (plist-get (car args) :html-metadata-timestamp-format)
+	     (string-to-number
+	      (shell-command-to-string
+	       (concat
+		"git-mtime --date=format:%s "
+		(plist-get (car args) :input-file)))))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE cleanup
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--shell-command (path)
+    (concat "git-mtime --date=format:%s " path))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(
+	     format-time-string
+	     (plist-get (car args) :html-metadata-timestamp-format)
+	     (string-to-number
+	      (shell-command-to-string
+	       (org-html-git-mtime--shell-command (plist-get (car args) :input-file)))))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--shell-command (path)
+    (concat "git-mtime --date=format:%s " path))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (string-to-number
+     (shell-command-to-string
+      (org-html-git-mtime--shell-command path))))
+
+  (defun org-html-git-mtime--formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (append
+     `((?C ,(org-html-git-mtime--formatted-mtime
+	      (plist-get (car args) :input-file)
+	      (plist-get (car args) :html-metadata-timestamp-format))))
+     (apply orig-fun args)))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--shell-command (path)
+    (concat "git-mtime --date=format:%s " path))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (string-to-number (shell-command-to-string
+		       (org-html-git-mtime--shell-command path))))
+
+  (defun org-html-git-mtime--formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (let ((info (car args)))
+      (append `((?C ,(org-html-git-mtime--formatted-mtime
+		       (plist-get info :input-file)
+		       (plist-get info :html-metadata-timestamp-format))))
+	      (apply orig-fun args))))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+
+#+RESULTS:
+
+** DONE make sure everything works with :after
+
+Dropped. We don't get the original args.
+
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--shell-command (path)
+    (concat "git-mtime --date=format:%s " path))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (string-to-number (shell-command-to-string
+		       (org-html-git-mtime--shell-command path))))
+
+  (defun org-html-git-mtime--formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-result &rest args)
+    (let ((info (car args)))
+      (append `((?C ,args))
+	      orig-result)))
+
+  (advice-add 'org-html-format-spec
+	      :filter-return #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE fall back to original function
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--shell-command (path)
+    (concat "git-mtime --date=format:%s " path))
+
+  (defun org-html-git-mtime--file-mtime (path)
+    (file-attribute-modification-time (file-attributes path)))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (let ((git-timestamp
+	   (string-to-number (shell-command-to-string (org-html-git-mtime--shell-command path)))))
+      (if ( > git-timestamp 0)
+	  git-timestamp
+	(org-html-git-mtime--file-mtime path))))
+
+  (defun org-html-git-mtime--formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (let ((info (car args)))
+      (append `((?C ,(org-html-git-mtime--formatted-mtime
+		       (plist-get info :input-file)
+		       (plist-get info :html-metadata-timestamp-format))))
+	      (apply orig-fun args))))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** DONE more cleanup
+
+#+begin_src emacs-lisp
+  (defun org-html-git-mtime--git-timestamp (path)
+    (string-to-number (shell-command-to-string
+		       (concat "git-mtime --date=format:%s " path))))
+
+  (defun org-html-git-mtime--file-timestamp (path)
+    (file-attribute-modification-time (file-attributes path)))
+
+  (defun org-html-git-mtime--timestamp (path)
+    (let ((git-timestamp (org-html-git-mtime--git-timestamp path))
+	  (file-timestamp (org-html-git-mtime--file-timestamp path)))
+      (if ( > git-timestamp 0) git-timestamp file-timestamp)))
+
+  (defun org-html-git-mtime--formatted-mtime (path format)
+    (format-time-string format (org-html-git-mtime--timestamp path)))
+
+  (defun org-html-git-mtime--advise-org-html-format-spec (orig-fun &rest args)
+    (let ((info (car args)))
+      (append `((?C ,(org-html-git-mtime--formatted-mtime
+		      (plist-get info :input-file)
+		      (plist-get info :html-metadata-timestamp-format))))
+	      (apply orig-fun args))))
+
+  (advice-add 'org-html-format-spec
+	      :around #'org-html-git-mtime--advise-org-html-format-spec)
+#+end_src
+
+#+RESULTS:
+
+** Testing project
+
+#+RESULTS:
+| 'ox-html-git-mtime | :add | (lambda nil (advice-add 'org-html-format-spec :around #'org-html-git-mtime--advise-org-html-format-spec)) | :remove | (lambda nil (advice-remove 'org-html-format-spec #'org-html-git-mtime--advise-org-html-format-spec)) |
+
+#+begin_src emacs-lisp
+  (setq org-publish-project-alist '(("test"
+				     :base-directory "~/ox-html-git-mtime"
+				     :publishing-function org-html-publish-to-html
+				     :publishing-directory "/tmp/ox-html-git-mtime"
+                                     :html-postamble "Last update: %C"
+				     :extensions ('ox-html-git-mtime))))
+
+  (org-publish-project "test")
+#+end_src
